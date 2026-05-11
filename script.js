@@ -1,5 +1,5 @@
-// Paste your Founder-Cohort Google Apps Script Web App URL once deployed
-const SHEET_URL = '';
+// Google Apps Script Web App endpoint (writes to the founder-cohort sheet).
+const SHEET_URL = 'https://script.google.com/macros/s/AKfycbzC8fTiWMvtg5kRoSrCQzOph21CkKwKsqojokEM7mMsqbq8DNvISX0ogyni-oZCrELP/exec';
 
 const form = document.getElementById('applicationForm');
 const successMessage = document.getElementById('successMessage');

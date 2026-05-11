@@ -59,6 +59,14 @@
         <input type="text" id="companyX" name="companyX" placeholder="@yourcompany" required>
       </div>
 
+      <!-- Honeypot: hidden from humans, visible to dumb bots. -->
+      <div class="hp" aria-hidden="true">
+        <label for="website">Website</label>
+        <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
+      </div>
+
+      <p id="formError" class="form-error hidden" role="alert"></p>
+
       <button type="submit" class="submit-btn">Submit application</button>
     </form>
 
@@ -66,7 +74,7 @@
       <div class="success-icon">&#10003;</div>
       <h2>Application received</h2>
       <p>Thanks for applying. We review every application personally and will reach out if there's a fit.</p>
-      <button class="reset-btn" onclick="resetForm()">Submit another</button>
+      <button type="button" class="reset-btn" id="resetBtn">Submit another</button>
     </div>
   </div>
 

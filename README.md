@@ -1,70 +1,85 @@
 # Founder-Led Marketing Cohort — Application Form
 
-Static one-pager that collects applications for the Lunar Strategy Founder-Led Marketing Cohort and POSTs them to a Google Apps Script Web App (which writes to a Google Sheet).
+Live at https://form.lunarstrategy.com. Application form for the Lunar Strategy Founder-Led Marketing Cohort.
+
+## Architecture
+
+```
+browser ──HTTPS──▶ nginx ──┬──▶ static files (/var/www/form.lunarstrategy.com)
+                            │
+                            └──▶ /api/* → Node proxy (127.0.0.1:3100) ──▶ Google Apps Script ──▶ Google Sheet
+```
+
+Static assets are served straight from nginx. Form submissions POST to `/api/submit`, which the Node proxy validates and forwards to the Apps Script Web App. **The Apps Script URL never ships to the client.**
 
 ## Local dev
 
 ```bash
-node server.js
-# → http://localhost:8089
+cp .env.example .env       # then fill in SHEET_URL
+node server.js             # → http://localhost:8089
 ```
 
-Override the port with `PORT=3000 node server.js`.
+The same `server.js` serves static files AND the `/api/` endpoints. In production, nginx handles static; Node only sees `/api/*`.
 
-## Before you deploy
+## Security model
 
-1. **Wire up the Google Sheet endpoint.** Edit [`script.js`](./script.js) line 2 and paste your Apps Script Web App URL:
-   ```js
-   const SHEET_URL = 'https://script.google.com/macros/s/.../exec';
-   ```
-   The submit handler POSTs JSON (`{xHandle, tg, company, companyX}`) with `mode: 'no-cors'`.
+- **Sheet URL** lives in `.env` on the server, never in any client-side file. `.env` is `chmod 600`.
+- **Origin check**: `/api/submit` rejects requests whose `Origin` header isn't `https://form.lunarstrategy.com`.
+- **Rate limit**: 5 submits per IP per minute (in-memory token bucket).
+- **Input validation**: required fields, ≤ 200 chars each, no control characters, 4 KB max body.
+- **Honeypot**: hidden `website` field; bots that fill it get a fake 200 with no row written.
+- **HTTP security headers** (set by nginx): HSTS, CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
+- **TLS** via Let's Encrypt (auto-renew via the existing certbot timer on the VPS).
 
-2. **Shrink the background video.** `background.mov` is 28.5 MB and `.mov` (QuickTime) doesn't autoplay reliably outside Safari. Re-encode before shipping:
-   ```bash
-   ffmpeg -i background.mov -vcodec libx264 -crf 28 -preset slow -vf "scale=1920:-2" \
-          -movflags +faststart -an background.mp4
-   ffmpeg -i background.mov -c:v libvpx-vp9 -crf 35 -b:v 0 -vf "scale=1920:-2" -an background.webm
-   ```
-   Then in `index.html` replace the two `<source>` lines with:
-   ```html
-   <source src="background.webm" type="video/webm">
-   <source src="background.mp4" type="video/mp4">
-   ```
-   Target ≤ 3 MB. Also add a `poster="background-poster.jpg"` attribute on the `<video>` so users on slow connections see something.
+## Operations
 
-## Deploy to a VPS
-
-Two paths. Pick one.
-
-### Option A — nginx (recommended; this is a static site)
-
-1. Copy the files to your server:
-   ```bash
-   ./deploy.sh user@your-vps.com /var/www/founder-form
-   ```
-2. Point nginx at the directory using [`nginx.conf.example`](./nginx.conf.example) as a starting point. Reload nginx: `sudo nginx -t && sudo systemctl reload nginx`.
-3. Add TLS with certbot: `sudo certbot --nginx -d apply.yourdomain.com`.
-
-### Option B — keep the Node server, run under pm2
-
+### Deploy
 ```bash
-ssh user@your-vps.com
-cd /var/www/founder-form
-npm install -g pm2
-PORT=3000 pm2 start server.js --name founder-form
-pm2 save && pm2 startup
+./deploy.sh root@187.124.34.41 /var/www/form.lunarstrategy.com
+ssh root@187.124.34.41 'pm2 restart form-lunarstrategy'   # only if server.js changed
 ```
-Then reverse-proxy `apply.yourdomain.com` → `127.0.0.1:3000` via nginx.
+`deploy.sh` excludes `.env`, so server-side secrets survive sync.
+
+### Logs & process management
+```bash
+ssh root@187.124.34.41 'pm2 logs form-lunarstrategy --lines 50'
+ssh root@187.124.34.41 'pm2 restart form-lunarstrategy'
+```
+
+### Rotate the Apps Script URL
+1. In Apps Script: **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy**. The URL stays the same.
+2. To force a new URL (e.g. if the old one leaked): **Deploy → New deployment**, then **Archive** the old one.
+3. Update `/var/www/form.lunarstrategy.com/.env` with the new URL, then `pm2 restart form-lunarstrategy`.
+
+### Recommended hardening (optional)
+Add a shared secret check inside the Apps Script `doPost` so the URL alone is useless even if it leaks:
+
+```js
+function doPost(e) {
+  const secret = PropertiesService.getScriptProperties().getProperty('PROXY_SECRET');
+  const data = JSON.parse(e.postData.contents);
+  if (!secret || data._secret !== secret) {
+    return ContentService.createTextOutput(JSON.stringify({error:'unauthorized'}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  sheet.appendRow([new Date(), data.xHandle, data.tg, data.company, data.companyX]);
+  return ContentService.createTextOutput(JSON.stringify({ok:true}))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+```
+Then add `PROXY_SECRET=<long-random>` to `.env` and have `server.js` include `_secret: process.env.PROXY_SECRET` in the forwarded body.
 
 ## File overview
 
 | File | Purpose |
 |---|---|
-| `index.html` | Markup, embedded Lunar Strategy SVG logo, video background |
+| `index.html` | Markup, Lunar Strategy SVG logo, honeypot field |
 | `style.css` | Layout + Neue Haas Unica typography |
-| `script.js` | Form submit → Apps Script POST |
-| `server.js` | Tiny static server for local dev (or VPS Option B) |
-| `background.mov` | Looping background (replace with `.mp4`/`.webm` before deploy) |
+| `script.js` | Submits to `/api/submit` (no secrets) |
+| `server.js` | Static server + `/api/submit` proxy + rate limit + validation |
+| `background.mov` | Looping background video |
 | `fonts/` | Neue Haas Unica Light + Bold |
-| `deploy.sh` | rsync to VPS |
-| `nginx.conf.example` | Drop-in nginx server block |
+| `.env.example` | Template — copy to `.env` and fill in `SHEET_URL` |
+| `deploy.sh` | rsync to VPS (excludes `.env`) |
+| `nginx.conf.example` | Reference nginx server block |

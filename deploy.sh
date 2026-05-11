@@ -11,20 +11,18 @@ REMOTE="$1"
 REMOTE_PATH="$2"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-if grep -q "^const SHEET_URL = '';" "$HERE/script.js"; then
-  echo "ERROR: SHEET_URL in script.js is empty. Set it before deploying." >&2
-  exit 1
-fi
-
 echo "Syncing $HERE -> $REMOTE:$REMOTE_PATH"
 rsync -avz --delete \
   --exclude '.git' \
+  --exclude '.gitignore' \
   --exclude '.claude' \
   --exclude '.DS_Store' \
   --exclude 'node_modules' \
   --exclude 'deploy.sh' \
   --exclude 'README.md' \
   --exclude 'nginx.conf.example' \
+  --exclude '.env' \
+  --exclude '.env.example' \
   "$HERE/" "$REMOTE:$REMOTE_PATH/"
 
 echo "Done. If nginx is configured, run: ssh $REMOTE 'sudo nginx -t && sudo systemctl reload nginx'"

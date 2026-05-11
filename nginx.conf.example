@@ -1,34 +1,53 @@
-# /etc/nginx/sites-available/founder-form
-# Symlink into sites-enabled and reload nginx.
+# /etc/nginx/sites-available/form.lunarstrategy.com
+# Symlink into sites-enabled, run `certbot --nginx -d form.lunarstrategy.com` for TLS,
+# then reload nginx.
 
 server {
     listen 80;
     listen [::]:80;
-    server_name apply.yourdomain.com;
+    server_name form.lunarstrategy.com;
+    # certbot rewrites this block to 301 → HTTPS once TLS is set up.
 
-    # certbot will rewrite this to a 301 once TLS is set up.
-    root /var/www/founder-form;
+    root /var/www/form.lunarstrategy.com;
     index index.html;
+
+    # API proxy to the Node process (pm2: form-lunarstrategy).
+    location /api/ {
+        proxy_pass http://127.0.0.1:3100;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+    }
 
     # Binary assets that don't change between deploys — long cache.
     location ~* \.(ttf|woff2?|mp4|webm|mov|png|jpg|jpeg|ico)$ {
         expires 1y;
-        add_header Cache-Control "public, immutable";
+        add_header Cache-Control "public, immutable" always;
         access_log off;
     }
 
-    # HTML/CSS/JS — must revalidate so updates take effect immediately.
+    # HTML/CSS/JS — must revalidate, plus browser security headers.
     location / {
         try_files $uri $uri/ =404;
-        add_header Cache-Control "no-cache, must-revalidate";
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'" always;
     }
 
-    # Don't serve dotfiles.
+    # Don't serve dotfiles (covers .env, .git, etc.).
     location ~ /\. { deny all; }
 
-    # Sensible defaults.
     server_tokens off;
     gzip on;
-    gzip_types text/plain text/css application/javascript image/svg+xml;
+    gzip_types text/plain text/css application/javascript image/svg+xml application/json;
     gzip_min_length 1024;
+    client_max_body_size 16k;
 }

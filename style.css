@@ -193,6 +193,26 @@ input::placeholder { color: var(--ink-muted); }
 
 .hidden { display: none; }
 
+/* Honeypot — off-screen, not display:none (so bots still see it). */
+.hp {
+  position: absolute;
+  left: -10000px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.form-error {
+  background: #ffe8e8;
+  color: #8b0000;
+  padding: 14px 20px;
+  border-radius: 16px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
 @media (max-width: 480px) {
   .logo svg { width: 120px; }
 }
